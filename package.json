@@ -19,6 +19,7 @@
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
+    "@coderline/alphatab-vite": "^1.8.4",
     "@tailwindcss/vite": "^4.1.0",
     "@types/node": "^22.10.5",
     "@vitejs/plugin-vue": "^5.2.1",

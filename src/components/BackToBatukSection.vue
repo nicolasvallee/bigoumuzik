@@ -1,22 +1,64 @@
 <script setup lang="ts">
-import MusicXmlViewer from './MusicXmlViewer.vue'
+import { ref } from 'vue'
+import MusicTrackGroup from './MusicTrackGroup.vue'
 
-const tracks = [
-  { title: 'First note', src: '/music/first-note.musicxml' },
+const trackGroups = [
+  {
+    id: 'funk',
+    title: 'Funk',
+    tracks: [
+      { title: 'Funk', src: '/music/funk.musicxml', image: '/images/funk.png'
+},
+      { title: 'Funk avec 6', src: '/music/funk-avec-6.musicxml' },
+    ],
+  },
+  {
+    id: 'rock',
+    title: 'Rock',
+    tracks: [
+      { title: 'Rockito', src: '/music/rockito.musicxml' },
+    ],
+  },
+  {
+    id: 'clown',
+    title: 'Clown',
+    tracks: [
+      { title: 'Clown', src: '/music/clown.musicxml' },
+    ],
+  },
 ]
+
+const selectedGroup = ref('funk')
 </script>
 
 <template>
   <section id="back-to-batuk" class="flex min-h-svh items-center bg-background-soft px-5 pb-20 pt-32 scroll-mt-20 sm:px-16 lg:px-36" aria-labelledby="batuk-title">
     <div class="mx-auto w-full max-w-6xl">
-      <p class="mb-6 text-xs font-bold uppercase tracking-[0.18em] text-accent">The next stop</p>
       <h2 id="batuk-title" class="max-w-[12ch] font-serif text-[clamp(3.25rem,9vw,8rem)] font-normal leading-[0.88]">Back to Batuk</h2>
-      <MusicXmlViewer
-        v-for="track in tracks"
-        :key="track.src"
-        :title="track.title"
-        :src="track.src"
-      />
+      <div class="mt-12 border-y border-border" aria-label="Track groups" role="tablist">
+        <button
+          v-for="group in trackGroups"
+          :key="group.id"
+          class="mr-6 inline-flex py-4 text-left text-sm font-semibold capitalize transition-colors last:mr-0"
+          :class="selectedGroup === group.id ? 'text-foreground' : 'text-foreground/45 hover:text-foreground'"
+          type="button"
+          role="tab"
+          :aria-selected="selectedGroup === group.id"
+          :aria-controls="`track-group-panel-${group.id}`"
+          @click="selectedGroup = group.id"
+        >
+          <span>{{ group.title }}</span>
+        </button>
+      </div>
+      <div v-if="selectedGroup" :id="`track-group-panel-${selectedGroup}`" class="mt-20">
+        <template v-for="group in trackGroups" :key="group.id">
+          <MusicTrackGroup
+            v-if="selectedGroup === group.id"
+            :id="group.id"
+            :tracks="group.tracks"
+          />
+        </template>
+      </div>
     </div>
   </section>
 </template>

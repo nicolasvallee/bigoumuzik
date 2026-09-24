@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import * as alphaTab from '@coderline/alphatab'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { normalizeMusicXml } from '@/lib/normalizeMusicXml'
 
 const props = defineProps<{
   src: string
@@ -8,40 +9,255 @@ const props = defineProps<{
 }>()
 
 const scoreElement = ref<HTMLElement | null>(null)
+const audioState = ref<'loading' | 'ready'>('loading')
+const isPlaying = ref(false)
+const currentTime = ref(0)
+const duration = ref(0)
+const selectedTrack = ref<'both' | 'snare' | 'kick'>('both')
 let api: alphaTab.AlphaTabApi | null = null
+let removePlayerReadyListener: (() => void) | null = null
+let removePlayerStateListener: (() => void) | null = null
+let removePlayerPositionListener: (() => void) | null = null
+let removeScoreLoadedListener: (() => void) | null = null
+let removeMidiLoadListener: (() => void) | null = null
+let removePlaybackListener: (() => void) | null = null
+let creditObserver: MutationObserver | null = null
+let pendingTimePosition: number | null = null
+let pendingPlayback = false
+let hasRenderedAllTracks = false
+let layoutObserver: ResizeObserver | null = null
+let removeWindowResizeListener: (() => void) | null = null
+
+const publicAsset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
+const playbackEventName = 'music-track-playing'
+const viewerId = Symbol('music-track-viewer')
 
 onMounted(() => {
   if (!scoreElement.value) return
 
-  api = new alphaTab.AlphaTabApi(scoreElement.value, {
-    core: { engine: 'svg', fontDirectory: '/font/', useWorkers: false },
-    display: { layoutMode: 'page', scale: 1 },
+  const currentApi = new alphaTab.AlphaTabApi(scoreElement.value, {
+    core: { engine: 'svg', fontDirectory: publicAsset('font/'), useWorkers: false },
+    display: { layoutMode: 'horizontal', scale: 1, stretchForce: 0.5 },
+    player: {
+      soundFont: publicAsset('soundfont/sonivox.sf2'),
+      enableCursor: true,
+      enableAnimatedBeatCursor: true,
+      playerMode: alphaTab.PlayerMode.EnabledSynthesizer,
+    },
   })
-  api.load(props.src)
+  api = currentApi
+
+  const pauseWhenAnotherTrackStarts = (event: Event) => {
+    if ((event as CustomEvent<symbol>).detail !== viewerId) {
+      currentApi.pause()
+    }
+  }
+  window.addEventListener(playbackEventName, pauseWhenAnotherTrackStarts)
+  removePlaybackListener = () => window.removeEventListener(playbackEventName, pauseWhenAnotherTrackStarts)
+
+  layoutObserver = new ResizeObserver(() => updateResponsiveLayout(currentApi))
+  layoutObserver.observe(scoreElement.value)
+  const updateLayoutOnResize = () => updateResponsiveLayout(currentApi)
+  window.addEventListener('resize', updateLayoutOnResize)
+  removeWindowResizeListener = () => window.removeEventListener('resize', updateLayoutOnResize)
+
+  creditObserver = new MutationObserver(hideAlphaTabCredit)
+  creditObserver.observe(scoreElement.value, { childList: true, subtree: true })
+
+  removePlayerReadyListener = currentApi.playerReady.on(() => {
+    audioState.value = 'ready'
+  })
+  removeScoreLoadedListener = currentApi.scoreLoaded.on((score) => {
+    if (hasRenderedAllTracks) return
+    hasRenderedAllTracks = true
+    removeScoreLoadedListener?.()
+    removeScoreLoadedListener = null
+
+    for (const track of score.tracks) {
+      track.percussionArticulations.forEach((articulation) => {
+        articulation.staffLine = 0
+      })
+      track.staves.forEach((staff) => {
+        staff.standardNotationLineCount = 1
+      })
+    }
+
+    currentApi.renderTracks(score.tracks)
+  })
+  removeMidiLoadListener = currentApi.midiLoad.on((midi) => {
+    const noteKey = selectedTrack.value === 'snare' ? 38 : selectedTrack.value === 'kick' ? 36 : null
+    if (noteKey !== null) {
+      midi.tracks.forEach((track) => {
+        for (let index = track.events.length - 1; index >= 0; index -= 1) {
+          const event = track.events[index]
+          if ('noteKey' in event && (event as { noteKey: number }).noteKey !== noteKey) {
+            track.events.splice(index, 1)
+          }
+        }
+      })
+    }
+
+    if (pendingTimePosition !== null) {
+      const timePosition = pendingTimePosition
+      window.setTimeout(() => {
+        if (!api) return
+        api.timePosition = timePosition
+        currentTime.value = timePosition
+        pendingTimePosition = null
+        if (pendingPlayback) {
+          pendingPlayback = false
+          api.play()
+        }
+      })
+    }
+  })
+  removePlayerStateListener = currentApi.playerStateChanged.on(({ state }) => {
+    isPlaying.value = state === alphaTab.synth.PlayerState.Playing
+    if (isPlaying.value) {
+      window.dispatchEvent(new CustomEvent(playbackEventName, { detail: viewerId }))
+    }
+  })
+  removePlayerPositionListener = currentApi.playerPositionChanged.on(({ currentTime: position, endTime }) => {
+    currentTime.value = position
+    duration.value = endTime
+  })
+
+  void loadMusicXml(currentApi)
 })
 
+async function loadMusicXml(currentApi: alphaTab.AlphaTabApi) {
+  const response = await fetch(publicAsset(props.src))
+  const xml = await response.text()
+  const normalizedXml = normalizeMusicXml(xml)
+  currentApi.load(new TextEncoder().encode(normalizedXml))
+}
+
 onBeforeUnmount(() => {
+  layoutObserver?.disconnect()
+  creditObserver?.disconnect()
+  removePlayerReadyListener?.()
+  removePlayerStateListener?.()
+  removePlayerPositionListener?.()
+  removeScoreLoadedListener?.()
+  removeMidiLoadListener?.()
+  removePlaybackListener?.()
+  removeWindowResizeListener?.()
   api?.destroy()
 })
+
+function updateResponsiveLayout(currentApi: alphaTab.AlphaTabApi) {
+  if (!scoreElement.value) return
+
+  const nextLayout = window.innerWidth < 720
+    ? alphaTab.LayoutMode.Page
+    : alphaTab.LayoutMode.Horizontal
+  if (currentApi.settings.display.layoutMode === nextLayout) return
+
+  currentApi.settings.display.layoutMode = nextLayout
+  currentApi.updateSettings()
+  currentApi.render()
+}
+
+function hideAlphaTabCredit() {
+  scoreElement.value?.querySelectorAll('svg text').forEach((text) => {
+    if (text.textContent?.trim() !== 'rendered by alphaTab') return
+
+    text.setAttribute('visibility', 'hidden')
+  })
+}
+
+function togglePlayback() {
+  api?.playPause()
+}
+
+function selectTrack(track: 'both' | 'snare' | 'kick') {
+  selectedTrack.value = track
+  if (!api) return
+
+  pendingTimePosition = currentTime.value
+  pendingPlayback = isPlaying.value
+  isPlaying.value = false
+  api.loadMidiForScore()
+}
+
+function seek(event: Event) {
+  if (!api) return
+  const value = Number((event.target as HTMLInputElement).value)
+  currentTime.value = value
+  api.timePosition = value
+}
+
+function formatTime(milliseconds: number) {
+  const seconds = Math.floor(milliseconds / 1000)
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
 </script>
 
 <template>
-  <div class="mt-12 max-w-3xl overflow-hidden rounded-2xl border border-border bg-white px-4 py-5 text-foreground shadow-2xl shadow-black/10 sm:px-6">
-    <div class="mb-4 flex items-baseline justify-between gap-4">
-      <div>
-        <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">A first sketch</p>
-        <h2 class="mt-2 font-serif text-2xl font-normal sm:text-3xl">{{ title }}</h2>
+  <div class="w-max max-w-full overflow-hidden rounded-2xl border border-border bg-white px-4 py-5 text-foreground shadow-2xl shadow-black/10 sm:px-6">
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-4">
+        <h2 class="font-serif text-2xl font-bold sm:text-3xl">{{ title }}</h2>
+        <button
+          class="inline-flex h-11 items-center justify-center rounded-full bg-accent px-5 text-sm font-semibold text-accent-foreground shadow-lg shadow-accent/20 transition-transform hover:-translate-y-0.5 hover:bg-foreground hover:text-background disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+          type="button"
+          :disabled="audioState !== 'ready'"
+          :aria-label="isPlaying ? `Pause ${title}` : `Play ${title}`"
+          @click="togglePlayback"
+        >
+          {{ audioState === 'ready' ? (isPlaying ? 'Pause' : 'Play') : 'Loading audio' }}
+        </button>
       </div>
-      <span class="text-xs text-foreground/60">1 measure</span>
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-2" aria-label="Track selector" role="group">
+        <button
+          v-for="track in ['both', 'snare', 'kick'] as const"
+          :key="track"
+          class="h-8 rounded-full border px-3 text-xs font-semibold capitalize transition-colors"
+          :class="selectedTrack === track ? 'border-foreground bg-foreground text-background' : 'border-border bg-transparent text-foreground/60 hover:border-foreground/50 hover:text-foreground'"
+          type="button"
+          :aria-pressed="selectedTrack === track"
+          @click="selectTrack(track)"
+        >
+          {{ track === 'both' ? 'Tout' : track === 'snare' ? 'Caisse' : 'Surdo' }}
+        </button>
+      </div>
     </div>
     <div ref="scoreElement" class="alpha-tab min-h-32 overflow-x-auto" aria-label="Rendered MusicXML score" />
+    <div class="mt-5 flex items-center gap-3 text-xs text-foreground/60">
+      <span class="w-9 shrink-0 text-right tabular-nums">{{ formatTime(currentTime) }}</span>
+      <input
+        class="h-1.5 min-w-0 flex-1 cursor-pointer accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        type="range"
+        min="0"
+        :max="duration || 1"
+        :value="currentTime"
+        :disabled="audioState !== 'ready' || !duration"
+        aria-label="Track progress"
+        @input="seek"
+      />
+      <span class="w-9 shrink-0 tabular-nums">{{ formatTime(duration) }}</span>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .alpha-tab :deep(svg) {
   display: block;
-  min-width: 560px;
-  width: 100%;
+  max-width: none;
+  width: auto;
+}
+
+.alpha-tab :deep(.at-cursor-beat) {
+  width: 3px;
+  background: var(--accent);
+  opacity: 0.9;
+}
+
+@media (max-width: 719px) {
+  .alpha-tab :deep(svg) {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
 }
 </style>

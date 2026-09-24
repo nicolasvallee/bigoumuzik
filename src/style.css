@@ -7,8 +7,8 @@
   --foreground: #101010;
   --muted-foreground: #656565;
   --border: rgb(16 16 16 / 14%);
-  --accent: #b9ff3d;
-  --accent-foreground: #101010;
+  --accent: #2563ff;
+  --accent-foreground: #ffffff;
 }
 
 @theme inline {

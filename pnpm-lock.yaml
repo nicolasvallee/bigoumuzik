@@ -30,6 +30,9 @@ importers:
         specifier: ^5.3.1
         version: 5.3.1(@vue/compiler-sfc@3.5.43)(esbuild@0.25.12)(rollup@4.63.4)(vite@6.4.3(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.32.0))(vue@3.5.43(typescript@5.9.3))
     devDependencies:
+      '@coderline/alphatab-vite':
+        specifier: ^1.8.4
+        version: 1.8.4(vite@6.4.3(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.32.0))
       '@tailwindcss/vite':
         specifier: ^4.1.0
         version: 4.3.3(vite@6.4.3(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.32.0))
@@ -70,6 +73,12 @@ packages:
   '@babel/types@7.29.8':
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
+
+  '@coderline/alphatab-vite@1.8.4':
+    resolution: {integrity: sha512-kUABf0FNMXZrr7TvHLUBTqpQQLrHXs9bIrsQMHHZXE0uIlH70yNSgbiuvm0SK0L5D07On5RD5InteJZIX9dacg==}
+    engines: {node: '>=20.19.0'}
+    peerDependencies:
+      vite: ^7 || ^8
 
   '@coderline/alphatab@1.8.4':
     resolution: {integrity: sha512-VN5rfTZZWgA63Ny1aDKCp02k3Qm9CHhg4Q9AnK0kHm7G+fNDNZo36TeToPDFoJ6VpB9+AHcCrHwHFUP1tKqdsw==}
@@ -1045,6 +1054,11 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
+
+  '@coderline/alphatab-vite@1.8.4(vite@6.4.3(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.32.0))':
+    dependencies:
+      magic-string: 0.30.21
+      vite: 6.4.3(@types/node@22.20.4)(jiti@2.7.0)(lightningcss@1.32.0)
 
   '@coderline/alphatab@1.8.4': {}
 
